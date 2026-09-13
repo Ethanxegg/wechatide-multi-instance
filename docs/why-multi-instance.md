@@ -68,6 +68,32 @@ async function g(project, method, params) {
 
 ⇒ 多账号窗口既不能自己起自动化端口（其 URL 里没有 `autoPort`），也不能通过"关掉主窗口、只剩它"的方式被 `agentStart` 选中（同生共死）→ **平台层不可自动化，结论闭合**。
 
+### 2.6 实测：不打补丁时该版本**最多同时 2 个实例**（minicode server 双端口）
+
+工具自己内置的 `MiniCodeService`（`app.asar`，模块里含 `minicode server started at port ` 字样）把端口写死成一个默认 + 一次回退：
+
+```js
+constructor(...) { this.currentPort = 32123 }
+listen(e) {
+  e.listen(this.currentPort, '127.0.0.1')
+  e.on('error', t => { if (t.code === 'EADDRINUSE') { this.currentPort = 33233; e.listen(this.currentPort, '127.0.0.1') } })
+}
+```
+
+33233 再被占时，错误回调**又一次**把 `currentPort` 设成 33233 并重新 `listen` → 无限重试。于是第 3 个实例的主进程陷入死循环，Windows 约 30 秒后按无响应杀掉它。
+
+| 观察项 | 健康实例 | 被占满后的第 3 个实例 |
+|---|---|---|
+| 进程数 | 20~21 | **4~6** |
+| 可见窗口 | 1 | 0（窗口闪一下即消失） |
+| 日志末行 | `[cliService] start cli server, http port …` | **`enable cli service`**（之后无任何输出） |
+| 主进程 CPU | 平稳 | 持续上涨（实测 5 秒 +6.5 秒 CPU、内存 +120MB） |
+| 事件日志 | — | `Application Hang` Id=1002 + WER `AppHangB1` |
+
+对照实验（干净复现，2026-09-13）：全停 → 32123/33233 均空闲 → 单起 p4 **5 秒就绪**（占 32123）→ 再起 p2 **5 秒就绪**（占 33233）→ 再起 p3 **100 秒未就绪、进程停在 4 个**。启动方式（正常模式 / `--cli` / 只给 `--user-data-dir`）不影响结论。
+
+⇒ 这不是"配置不对"或"启动姿势不对"，是**端口数量硬上限**。要 3 台以上必须给每个副本一组独立端口：`scripts/patch-minicode-port.js`（字节等长替换，改前停实例、自动备份、`--revert` 可还原）。实测分配：p2 `32123/33233`、p3 `32124/33234`、p4 `32125/33235`、p5 `32126/33236`。
+
 ## 三、方案 A：官方多账号自动化（已废弃）
 
 - 设计意图：官方[自动化 FAQ](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/faq.html)「一台机器多账号 = 多账号调试 + `miniProgram.testAccounts`」，[MiniProgram API](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/miniprogram.html) 给了 `automator.launch({ projectPath, account })` 示例。

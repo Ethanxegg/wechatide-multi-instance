@@ -9,6 +9,7 @@
 
 - `devtools.ps1 start|stop|verify|fix|arrange|status`：一键起/停 N 个互相隔离的实例、挂自动化端口、校验每个实例当前是**哪个真实身份**（含库内用户与角色）、把窗口摆成宫格便于肉眼区分。
 - `verify-identities.js`：逐个端口读 `whoami` + 页面路径 + 库内用户/角色；**把"多个实例其实是同一个账号"直接判为失败**、把云会话失效提示成一条修复命令。
+- `patch-minicode-port.js`：修「第 3 个实例必被 Windows 按无响应杀掉」的工具 bug（内置 `minicode server` 只有 32123/33233 两个端口）；支持 `--check` / `--revert`。见 `SKILL.md` 专节。
 - 附带一套踩坑速查（token 争用、模块缺失、构建超时、实例半死……），见 `SKILL.md`。
 
 ## 环境要求
@@ -53,10 +54,15 @@ Copy-Item -Recurse . "<repo>\.agents\skills\wechatide-multi-instance"
 $S = "<本目录>\scripts\devtools.ps1"      # 或 $HOME\.dsh\skills\wechatide-multi-instance\scripts\devtools.ps1
 $P = "<你的小程序工程绝对路径>"             # 含 project.config.json
 
+# 【首次且要同时开 3 台以上】先给每个副本一组独立 minicode 端口（先停该实例再改）
+node "<本目录>\scripts\patch-minicode-port.js" p3 32124 33234
+node "<本目录>\scripts\patch-minicode-port.js" p4 32125 33235
+node "<本目录>\scripts\patch-minicode-port.js" p5 32126 33236
+
 pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 校验
 # 【人工】在每个窗口：右上角头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同；同时打印库内角色
-pwsh $S arrange p2,p3,p4,p5                # 2×2 摆窗
+pwsh $S arrange p2,p3,p4,p5                # 可选：2×2 摆窗（会先最大化再改尺寸；习惯手动调窗口就别跑）
 pwsh $S stop   p2,p3,p4,p5                 # 收尾
 ```
 
@@ -97,6 +103,7 @@ mp.disconnect();
 ## 实测结论（帮你少走弯路）
 
 - 同一 appid 的多实例会**争 `access_token`**（微信 token 全局唯一）：报 `invalid credential, access_token is invalid or not latest` 时，在出问题的那台执行 `devtools.ps1 fix <实例>` 即可（等价于 `cli cache --clean session`）。
+- **该版本不打补丁最多同时开 2 台**：工具内置 `minicode server` 端口写死 32123、只回退 33233，两个都被占就无限重试 → 第 3 台的主进程被 Windows 判无响应杀掉（无窗口、进程只剩 4~6 个、日志停在 `enable cli service`）。换启动方式、重装 profile、重启都不解决，要 3 台以上用 `scripts/patch-minicode-port.js` 给每个副本一组独立端口。证据与复现见 [`docs/why-multi-instance.md`](docs/why-multi-instance.md) 2.6。
 - 每实例的 CLI profile 是从主实例**整份拷贝**的 → 不手动换号，N 个实例都是同一个账号；`verify` 会把这个判为失败。
 - `es6 + enhance` 增强编译会给对象展开注入 `@babel/runtime` helper：工程 `miniprogram/package.json` 里没有该依赖时，**只有新开的窗口**会报 `module '@babel/runtime/...' is not defined`、app 初始化失败。处置见 `SKILL.md` 专节。
 - 别在多个实例同时跑开发者工具的「构建 npm」；实测会把它卡死。
@@ -104,6 +111,7 @@ mp.disconnect();
 ## 兼容与验证
 
 - 开发与实测环境：微信开发者工具 **2.02.2608060**（Windows）。
+- 该版本已验证的坑：`minicode server` 双端口导致同时最多 2 台实例（补丁见 `scripts/patch-minicode-port.js`）。更高版本若修了这个回退逻辑，补丁脚本的 `--check` 会报"常量出现次数异常"并拒绝修改 —— 那就说明不用补了。
 - 官方文档依据：[多账号调试](https://developers.weixin.qq.com/miniprogram/dev/devtools/multiaccount.html)、[自动化 FAQ](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/faq.html)。
 
 ## 许可
