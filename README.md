@@ -24,8 +24,17 @@
 **方式 A：用 skills CLI（推荐）**
 
 ```bash
-npx skills add <github-owner>/wechatide-multi-instance -g
+# 先看看仓库里有哪些 skill（不安装）
+npx skills add Ethanxegg/wechatide-multi-instance --list
+
+# 装到指定 agent（用户级）；把 claude-code 换成你用的 agent id
+npx skills add Ethanxegg/wechatide-multi-instance -g -a claude-code -y
+# 装到所有已知 agent
+npx skills add Ethanxegg/wechatide-multi-instance --all
 ```
+
+> 实测：该 CLI 能正确识别本仓库（`Found 1 skill: wechatide-multi-instance`）。
+> 不带 `-a` 时会交互式询问装到哪些 agent，非 TTY 环境会取消，务必带 `-a`（或 `--all`）。
 
 **方式 B：手动放进 agent 的技能目录**
 
