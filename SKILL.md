@@ -90,6 +90,7 @@ mp.disconnect();
 | `build-npm` 卡住（CLI 数分钟无返回）或 `Fetching AppID detailed information → TimeoutError` | 微信侧接口慢 + 多实例并发 | **只留一个实例**再试；仍失败走专节的手工兜底 |
 | 窗口刚开时 `arrange` 报"没有可见窗口" | 窗口尚未就绪 | 等 10 秒再跑一次 |
 | 实例"半死"（automator 超时 / app 不初始化） | 编译状态坏了 | 关掉该实例进程后 `devtools.ps1 start <实例>` 重启（登录态在 profile 里，不丢） |
+| 查"谁占用了某路径/某个 profile"时命中自己 | 你在用 `CommandLine -like '*<关键词>*'` 匹配，而关键词就在**你这条命令**的命令行里（自匹配） | 换判据：对目录做一次改名（`Rename-Item`）成功即未被占用；或只看 `ExecutablePath` / 文件句柄 |
 
 CLI 参数真名（容易记错）：清缓存 `cli cache --clean <storage\|file\|compile\|auth\|network\|session\|all>`（**不是** `cleancache`）；`cli open-other` **不带参数**；全命令表 `cli --help`。
 
