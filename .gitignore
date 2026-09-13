@@ -1,0 +1,7 @@
+# 运行时产物
+*.log
+instances.json
+
+# Windows
+Thumbs.db
+desktop.ini
