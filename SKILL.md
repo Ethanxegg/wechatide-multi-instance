@@ -221,6 +221,15 @@ pwsh <本 skill 目录>\scripts\devtools.ps1 restore-layout p2,p3,p4,p5   # 一�
 
 `start` 结束时若该 json 存在会**自动 restore 一次**。除四台工程窗口外，标题为 `-LogTitle`（默认「调试输出 · 四台」）的独立日志窗也会一起记住。
 
+**取证 / 看图小工具**（都在 `scripts/`，参数含 `-InstallRoot` 默认 `D:\Tencent\wechatdev`）
+
+| 工具 | 用途 |
+|---|---|
+| `list-windows.ps1 -Instances p2,p3,p4,p5` | 列顶层窗口：可见性 / 类名 / 标题 / 位置尺寸。判断「窗口有没有出、是不是只剩模拟器、日志窗在不在」 |
+| `capture-window.ps1 -Instance p5 -Out shot.png`（或 `-ProcessId 1234` 抓任意窗口，如独立日志窗） | 截整个窗口（`PrintWindow(PW_RENDERFULLCONTENT)`，不受遮挡影响；全黑时自动回退抓屏）。**比肉眼看界面硬**：能直接确认面板布局/窗口形态 |
+| `patch-ide-layout.js <实例> [--ide-port=43597] [--debug-popup=on] [--debug-show=off] [--editor-show=on]` | 改面板状态（写 profile 的 `WeappLocalData\localstorage_<hash>.json` 的 `debug{show,popup}` / `simulator{show,popup}` / `editor{show}`）。**必须在实例停止时改**，否则被 IDE 覆盖；改前自动留 `.bak-layout`。注意 `debug.popup=true` 只记录状态、**不会**创建调试器窗口（那个窗口由 UI 的「分离窗口」动作创建） |
+| `asar-grep.js <asar> <关键字…>` / `asar-extract.js <asar> <条目路径> [输出]` / `locale-find.js <asar> <词条文件> <中文关键字…>` | 工具自身行为的取证三件套：在 `app.asar` 的条目内容里搜关键字（带上下文）、抠出单个条目、按中文反查词条 key。**这套工具就是靠它们把「窗口模式只有 liteMode/fullMode」「CLI open 写死 fullMode」「minicode 只有两个端口」从字节码里挖出来的** |
+
 
 
 ## 不要浪费时间再试的事
@@ -253,5 +262,6 @@ pwsh <本 skill 目录>\scripts\devtools.ps1 restore-layout p2,p3,p4,p5   # 一�
 - [`scripts/patch-minicode-port.js`](scripts/patch-minicode-port.js)：minicode 双端口 bug 的补丁 / 复核 / 还原工具（`--check`、`--revert`）。
 - [`scripts/console-watch.js`](scripts/console-watch.js)：独立日志窗——把各实例模拟器 console（默认 warn 及以上）实时打到单独窗口，按身份前缀。
 - [`scripts/window-layout.ps1`](scripts/window-layout.ps1)：记住 / 复原窗口位置与大小（devtools.ps1 的 `save-layout` / `restore-layout` 调它）。
+- 取证 / 看图：`scripts/list-windows.ps1`、`scripts/capture-window.ps1`、`scripts/patch-ide-layout.js`、`scripts/asar-grep.js`、`scripts/asar-extract.js`、`scripts/locale-find.js`（见上方「取证 / 看图小工具」）。
 - [`README.md`](README.md)：安装、实例表配置、快速开始。
 - 官方文档：[多账号调试](https://developers.weixin.qq.com/miniprogram/dev/devtools/multiaccount.html)、[自动化 FAQ](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/faq.html)。

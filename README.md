@@ -12,6 +12,7 @@
 - `patch-minicode-port.js`：修「第 3 个实例必被 Windows 按无响应杀掉」的工具 bug（内置 `minicode server` 只有 32123/33233 两个端口）；支持 `--check` / `--revert`。见 `SKILL.md` 专节。
 - `console-watch.js`：**独立调试输出窗口**——把各实例模拟器的 console（默认 warn 及以上）实时打到单独窗口，行首带身份前缀，四台合并看。
 - `window-layout.ps1`：记住 / 复原窗口位置与大小（工具自己只存尺寸、不存位置）。
+- 取证 / 看图小工具：`list-windows.ps1`（列窗口）、`capture-window.ps1`（截整窗，`-Instance` 或 `-ProcessId`）、`patch-ide-layout.js`（改面板状态：显示/隐藏编辑器·调试器·模拟器）、`asar-grep.js` / `asar-extract.js` / `locale-find.js`（在 `app.asar` 里搜关键字 / 抠条目 / 按中文反查词条 key）。
 - 附带一套踩坑速查（token 争用、模块缺失、构建超时、实例半死、窄窗 980 锁……），见 `SKILL.md`。
 
 ## 环境要求
