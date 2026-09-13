@@ -7,10 +7,12 @@
 
 ## 能做什么
 
-- `devtools.ps1 start|stop|verify|fix|arrange|status`：一键起/停 N 个互相隔离的实例、挂自动化端口、校验每个实例当前是**哪个真实身份**（含库内用户与角色）、把窗口摆成宫格便于肉眼区分。
+- `devtools.ps1 start|stop|verify|fix|lite|save-layout|restore-layout|arrange|status`：一键起/停 N 个互相隔离的实例、挂自动化端口、校验每个实例当前是**哪个真实身份**（含库内用户与角色）、把工程窗口切成「只有模拟器」的窄窗、记住/复原窗口布局、把窗口摆成宫格便于肉眼区分。
 - `verify-identities.js`：逐个端口读 `whoami` + 页面路径 + 库内用户/角色；**把"多个实例其实是同一个账号"直接判为失败**、把云会话失效提示成一条修复命令。
 - `patch-minicode-port.js`：修「第 3 个实例必被 Windows 按无响应杀掉」的工具 bug（内置 `minicode server` 只有 32123/33233 两个端口）；支持 `--check` / `--revert`。见 `SKILL.md` 专节。
-- 附带一套踩坑速查（token 争用、模块缺失、构建超时、实例半死……），见 `SKILL.md`。
+- `console-watch.js`：**独立调试输出窗口**——把各实例模拟器的 console（默认 warn 及以上）实时打到单独窗口，行首带身份前缀，四台合并看。
+- `window-layout.ps1`：记住 / 复原窗口位置与大小（工具自己只存尺寸、不存位置）。
+- 附带一套踩坑速查（token 争用、模块缺失、构建超时、实例半死、窄窗 980 锁……），见 `SKILL.md`。
 
 ## 环境要求
 
@@ -62,8 +64,16 @@ node "<本目录>\scripts\patch-minicode-port.js" p5 32126 33236
 pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 校验
 # 【人工】在每个窗口：右上角头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同；同时打印库内角色
+pwsh $S lite   p2,p3,p4,p5 -Project $P     # 可选：切成「只有模拟器」的窄窗（约 400px，可并排摆开）
+pwsh $S save-layout p2,p3,p4,p5            # 记住窗口位置+大小（start 结束时会自动 restore）
 pwsh $S arrange p2,p3,p4,p5                # 可选：2×2 摆窗（会先最大化再改尺寸；习惯手动调窗口就别跑）
 pwsh $S stop   p2,p3,p4,p5                 # 收尾
+```
+
+独立调试输出窗口（四台合并、行首带身份前缀、默认 warn 及以上）：
+
+```powershell
+node "<本目录>\scripts\console-watch.js" --project $P --instances p2,p3,p4,p5
 ```
 
 连接某个实例（任意测试脚本）：
@@ -107,6 +117,9 @@ mp.disconnect();
 - 每实例的 CLI profile 是从主实例**整份拷贝**的 → 不手动换号，N 个实例都是同一个账号；`verify` 会把这个判为失败。
 - `es6 + enhance` 增强编译会给对象展开注入 `@babel/runtime` helper：工程 `miniprogram/package.json` 里没有该依赖时，**只有新开的窗口**会报 `module '@babel/runtime/...' is not defined`、app 初始化失败。处置见 `SKILL.md` 专节。
 - 别在多个实例同时跑开发者工具的「构建 npm」；实测会把它卡死。
+- **窗口能多窄**：full 模式最小宽被工具锁在 980；`lite`（只有模拟器）是 280 / 「设备宽+30」。CLI 的 `open` 源码写死 `fullMode`，所以切 lite 只能走 MCP 工具（`devtools.ps1 lite` 已封装），且**必须先关窗再开**才会换模式。
+- `start` 不会把**已开着**的窗口打回 full（CLI open 发现窗口在就直接返回）；但窗口原本关着时 `start` 会用 full 开，之后想窄窗要补一次 `lite`。
+- **窗口位置工具不存**（只存尺寸 `position` / `liteCollapsed`），跨重启靠 `save-layout` / `restore-layout`。
 
 ## 兼容与验证
 

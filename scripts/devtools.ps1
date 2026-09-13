@@ -10,10 +10,13 @@
   --user-data-dir / --ide-http-port / --remote-port。
 
   用法：
-    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 校验
+    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 校验（末尾自动复原上次布局）
     pwsh devtools.ps1 verify  p3,p4 -Project <工程绝对路径>  # 只校验：端口、当前身份、库内角色
     pwsh devtools.ps1 fix     p3    -Project <工程绝对路径>  # invalid credential 时刷新该实例云会话
-    pwsh devtools.ps1 arrange p3,p4                          # 窗口宫格摆开，便于区分
+    pwsh devtools.ps1 lite    p3,p4 -Project <工程绝对路径>  # 把工程窗口切成 lite（只有模拟器的窄窗）
+    pwsh devtools.ps1 save-layout    p3,p4                   # 记住这些窗口的位置+大小（含独立日志窗）
+    pwsh devtools.ps1 restore-layout p3,p4                   # 复原上次记住的窗口布局
+    pwsh devtools.ps1 arrange p3,p4                          # 窗口宫格摆开（会先最大化再改尺寸，习惯手调就别跑）
     pwsh devtools.ps1 status  p3,p4                          # 只列端口监听情况
     pwsh devtools.ps1 stop    p3,p4                          # 关闭这些实例（-DryRun 只打印）
 
@@ -21,13 +24,19 @@
     -InstallRoot <路径>   开发者工具主安装目录（默认 D:\Tencent\wechatdev）
     -ChromiumRoot <路径>  各实例独立 Chromium 目录的父目录（默认 D:\ide-chromium）
     -Config <json 路径>   自定义实例表，见 README「实例表配置」
+    -LayoutFile <json>    窗口布局文件（默认 <skill 根>\window-layout.json）
+    -LogTitle <标题>       独立日志窗标题（默认「调试输出 · 四台」，见 scripts\console-watch.js）
+
+  窗口形态：full 模式（默认）最小宽度被工具锁在 980；要「只有模拟器」的窄窗（280 / 设备宽+30）
+  只能用 `lite` 动作——它走 MCP 工具 `open_project_window --window-mode liteMode`，因为 CLI 的
+  `cli open` 在源码里写死了 "fullMode"（传 --window-mode 无效，实测）。
 
   首次使用：实例起来后必须**手动**在每个窗口退出登录并用不同微信号扫码
   （profile 是从主实例整份拷来的，不退登录就四个实例同一个账号）。
 #>
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status')]
+  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'save-layout', 'restore-layout')]
   [string]$Action = 'verify',
 
   [Parameter(Position = 1)]
@@ -37,6 +46,8 @@ param(
   [string]$InstallRoot = 'D:\Tencent\wechatdev',
   [string]$ChromiumRoot = 'D:\ide-chromium',
   [string]$Config,
+  [string]$LayoutFile,
+  [string]$LogTitle = '调试输出 · 四台',
   [switch]$DryRun
 )
 
@@ -83,7 +94,10 @@ function Resolve-Project([string]$p) {
   throw '找不到工程目录（向上没有 project.config.json）——请用 -Project <工程绝对路径> 指定'
 }
 
-$Project = Resolve-Project $Project
+# 只有这几个动作需要工程；布局/状态/停止/摆窗不需要，缺 -Project 时不报错
+$NeedsProject = @('start', 'verify', 'fix', 'lite') -contains $Action
+try { $Project = Resolve-Project $Project }
+catch { if ($NeedsProject) { throw } else { $Project = '' } }
 $VerifyScript = Join-Path $PSScriptRoot 'verify-identities.js'
 
 $Names = @($Names | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
@@ -202,11 +216,48 @@ function Invoke-Verify {
   if ($LASTEXITCODE -ne 0) { Write-Host '校验脚本返回非 0（可能有实例身份重复或端口不通）' }
 }
 
+# ---- 窗口布局：记住/复原位置+大小（工具自己只记尺寸，不记位置）----
+$LayoutScript = Join-Path $PSScriptRoot 'window-layout.ps1'
+if (-not $LayoutFile) { $LayoutFile = Join-Path (Split-Path $PSScriptRoot -Parent) 'window-layout.json' }
+
+function Invoke-Layout([string]$mode) {
+  if (-not (Test-Path $LayoutScript)) { Write-Host "  （缺 $LayoutScript，跳过）"; return }
+  & $LayoutScript -Action $mode -File $LayoutFile -Instances ($Selected -join ',') -LogTitle $LogTitle -InstallRoot $InstallRoot
+}
+
+# ---- lite 窗口：只有模拟器的窄窗（full 模式最小宽 980 被工具锁死，lite 是 280 / 设备宽+30）----
+function Switch-ToLite([string]$n) {
+  $s = $Instances[$n]
+  $w = Join-Path (Get-Install $n) 'wechatide.cmd'
+  if (-not (Test-Path $w)) { Write-Host "[$n] 该副本没有 wechatide.cmd（版本过老？），跳过"; return }
+  Write-Host "[$n] 切 lite 窗口…"
+  # 已存在的窗口不换模式：必须先关再开
+  & $w -c dsh close_project_window --project $Project *> $null
+  for ($i = 1; $i -le 12; $i++) {
+    Start-Sleep -Seconds 2
+    $open = @(Get-Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and $_.Path.StartsWith((Get-Install $n), 'OrdinalIgnoreCase') -and $_.MainWindowTitle -eq (Split-Path $Project -Leaf) })
+    if (-not $open) { break }
+  }
+  $out = & $w -c dsh open_project_window --project $Project --window-mode liteMode 2>&1 | Out-String
+  if ($out -notmatch '"success":\s*true') {
+    Write-Host "[$n] open_project_window 异常：$((($out.Trim() -split "`n") | Select-Object -Last 1).Trim())"
+    return
+  }
+  Start-Sleep -Seconds 12
+  Attach-Automation $n
+}
+
 switch ($Action) {
   'start' {
     foreach ($n in $Selected) { Ensure-Instance $n; Open-Project $n; Attach-Automation $n }
     Write-Host ''
     Invoke-Verify
+    if (Test-Path $LayoutFile) {
+      Write-Host ''
+      Write-Host "复原上次记住的窗口布局（$LayoutFile）…"
+      Invoke-Layout 'restore'
+    }
     Write-Host "`n下一步：若上面出现「身份重复」，在每个实例窗口右上角头像 → 退出登录 → 用不同微信号扫码，再跑 verify。"
   }
   'verify' { Invoke-Verify }
@@ -228,6 +279,14 @@ switch ($Action) {
     Write-Host ''
     Invoke-Verify
   }
+  'lite' {
+    if (-not $Project) { throw 'lite 需要 -Project <工程绝对路径>' }
+    foreach ($n in $Selected) { Switch-ToLite $n }
+    Write-Host ''
+    Invoke-Verify
+  }
+  'save-layout' { Invoke-Layout 'save' }
+  'restore-layout' { Invoke-Layout 'restore' }
   'arrange' { Arrange-Windows }
   'stop' { foreach ($n in $Selected) { Stop-Instance $n } }
 }

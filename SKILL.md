@@ -6,6 +6,7 @@ description: >-
   也覆盖这一路的坑与处置：多账号调试窗口不可自动化、同一 appid 的 access_token 互相顶掉
   （invalid credential）、agent start 只绑第一个窗口、CLI 参数真名（cache --clean session）、
   第 3 个实例起不来（minicode server 双端口 bug，附补丁脚本）、
+  窗口太宽只想留模拟器（lite 窗口）、把调试输出独立成窗口、记住/复原多窗口布局，
   以及小程序侧 `module '@babel/runtime/...' is not defined` / `Cloud API isn't enabled` 的鉴别与修复。
   当需要多个角色同时在线调试、多窗口并行自动化、开多个开发者工具实例，
   或同工程的第二个窗口连不上自动化端口、第 3 个实例开了就卡死、新实例编译报模块缺失时使用。
@@ -13,6 +14,7 @@ whenToUse: >-
   用户要"多角色/多账号同时在线测试"、"开多个开发者工具实例"、"多窗口调试图自动化"，
   或多账号调试开的窗口连不上自动化端口、报 invalid credential、
   第 3 个实例起不来/窗口卡住/进程只有 4~6 个、
+  嫌窗口太宽想"只留模拟器/预览"、想把调试输出独立成窗口、想记住多窗口布局，
   新开的窗口报 module is not defined / Cloud API isn't enabled 时。
 metadata:
   short-description: 开发者工具多实例多账号并行调试
@@ -55,12 +57,18 @@ node <本 skill 目录>\scripts\patch-minicode-port.js p4 32125 33235
 node <本 skill 目录>\scripts\patch-minicode-port.js p5 32126 33236
 node <本 skill 目录>\scripts\patch-minicode-port.js --check p3      # 复核
 
-pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>
+pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>   # 末尾会自动复原上次布局
 # 【人工】每个窗口：头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify  p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同 + 打印库内角色
+pwsh $S lite    p2,p3,p4,p5 -Project $P     # 可选：切「只有模拟器」的窄窗（约 400px，可并排摆开）
+pwsh $S save-layout    p2,p3,p4,p5          # 记住窗口位置+大小（含独立日志窗）
+pwsh $S restore-layout p2,p3,p4,p5          # 复原上次记住的布局
 pwsh $S arrange p2,p3,p4,p5                 # 可选：宫格摆窗。它会先最大化再改尺寸——习惯自己最大化/调窗口就别跑
 pwsh $S fix     p3 -Project $P              # invalid credential 时刷新该实例云会话
 pwsh $S stop    p2,p3,p4,p5                 # 收尾（-DryRun 只打印）
+
+# 独立调试输出窗口（warn 及以上实时打印，四台合并、带身份前缀）
+node <本 skill 目录>\scripts\console-watch.js --project $P --instances p2,p3,p4,p5
 ```
 
 默认实例表（`-Config <json>` 可自定义，见 README）：
@@ -100,6 +108,11 @@ mp.disconnect();
 | 窗口刚开时 `arrange` 报"没有可见窗口" | 窗口尚未就绪 | 等 10 秒再跑一次 |
 | **第 3 个实例起不来**：无窗口、进程只有 4~6 个（健康 20~21）、日志末行停在 `enable cli service` | 工具 bug：`minicode server` 只有 32123/33233 两个端口，被前两台占满后无限重试 | 见下方专节（`scripts/patch-minicode-port.js` 给每个副本改端口）；**换启动方式/重装 profile 都无效** |
 | 事件日志里 `Application Hang` 1002 / WER `AppHangB1`，"程序微信开发者工具.exe 停止与 Windows 交互并已关闭" | 同上（死循环被 Windows 判无响应） | 同上；顺着 CPU 持续上涨也能认出它 |
+| 主窗口**最窄只能拖到约 980px** | full 模式的 `PROJECT_WINDOW.MIN_WIDTH = 980` | 要窄窗先切 lite：`devtools.ps1 lite`（min 280） |
+| `cli open --window-mode liteMode` 没效果 | CLI 源码写死 `openProjectWindow(o, "fullMode")` | 用 `devtools.ps1 lite`（走 MCP 工具 `open_project_window`）；且**窗口已存在时换模式无效**，会先关再开 |
+| 独立日志窗没有任何输出 | MCP 客户端名不是 IDE 已授权的那个 | 用 skill-cli 默认的 `dsh`（换新名字 `initialize` 会返回 `Client authorization pending`） |
+| 过滤串带 `\|` 报"不是内部或外部命令" | `wechatide` 经 cmd 调用，`\|` 被当管道符 | 每个级别单独一条 grep（脚本默认行为），或用 `--levels-file` |
+| 实例重启后窗口位置乱/重叠 | 工具只持久化**尺寸**，不记 x/y | `devtools.ps1 restore-layout`（`start` 结束会自动跑一次） |
 | `cli open` 报 `需要重新登录 (code 10)` | CLI profile 目录（`%LOCALAPPDATA%\微信开发者工具\User Data\<hash>`）**装着登录态**，被改名/换成了新拷的那份 | 把原 profile 目录名改回去（改名前保留的那份），别删 |
 | 实例"半死"（automator 超时 / app 不初始化） | 编译状态坏了 | 关掉该实例进程后 `devtools.ps1 start <实例>` 重启（登录态在 profile 里，不丢） |
 | 查"谁占用了某路径/某个 profile"时命中自己 | 你在用 `CommandLine -like '*<关键词>*'` 匹配，而关键词就在**你这条命令**的命令行里（自匹配） | 换判据：对目录做一次改名（`Rename-Item`）成功即未被占用；或只看 `ExecutablePath` / 文件句柄 |
@@ -171,6 +184,45 @@ node <本 skill 目录>\scripts\patch-minicode-port.js --check p3
 - **CLI profile 目录装着登录态**：排查时若把它改名（`%LOCALAPPDATA%\微信开发者工具\User Data\<hash>`），`cli open` 会报 `需要重新登录 (code 10)`——把目录名改回去即可恢复，**别删**。
 - 同一个 `.ide` 值出现在两份 profile 时 CLI 可能选错实例，实验完记得把目录名复原。
 
+## 窗口形态、独立日志窗与布局记忆
+
+**窗口形态（full / lite）**
+
+| | 内容 | 尺寸 | 怎么开 |
+|---|---|---|---|
+| `fullMode`（默认） | 编辑器 + 模拟器 + 调试器 | 默认 1250×1000，**最小宽度被工具锁在 980** | `cli open --project <工程>` |
+| `liteMode` | **只有模拟器**（紧凑标题栏 + 工具栏 + 模拟器） | 默认「设备宽+30」×「设备高+60」，**最小宽 280** | `devtools.ps1 lite`（走 MCP 工具，见下） |
+
+- CLI 的 `open` **开不出 lite 窗口**：源码里写死了 `openProjectWindow(o, "fullMode")`，传 `--window-mode liteMode` 会被忽略（实测两次都仍是 full）。能带 `windowMode` 的只有 MCP 工具 `open_project_window`（默认值就是 `liteMode`），`devtools.ps1 lite` 就是调它：先 `close_project_window` 再 `open_project_window --window-mode liteMode`——**窗口已存在时换模式无效**，必须先关。
+- `start` **不会**把已开着的窗口打回 full：它走 CLI `open`，而 CLI open 发现窗口已存在就直接返回、不动窗口。但**窗口原本是关着**的时候 `start` 会用 full 模式开出来，随后要窄窗得补一次 `lite`。
+- lite 窗口里**没有调试器面板**（lite 就是纯模拟器），所以想看 console 得另开：见下面的独立日志窗；或回到 full 模式，在调试器面板上点「分离窗口」（`ICON_DETACH` → 该动作会同时弹出模拟器窗口和 `<工程名>的调试器` 独立窗口）。
+- 尺寸工具自己会记：profile 的 `WeappLocalData\localstorage_<hash>.json` 里 `position`（full 尺寸）/ `liteCollapsed`（lite 尺寸），改了尺寸下次启动按这个开。
+
+**独立日志窗**：`scripts/console-watch.js`
+
+```powershell
+node <本 skill 目录>\scripts\console-watch.js --project <工程> [--instances p2,p3,p4,p5] [--interval 3000]
+```
+
+- 走 `wechatide mcp`（每实例一个**常驻** stdio 进程）循环调 `get_simulator_console`，只打印新增行；默认只看 `warn,error`，用 `--filter 'grep -n .'` 可看全部。
+- 默认每级一条 grep（`grep -n -i warn` + `grep -n -i error`）：**过滤串经 cmd 传递，里面的 `|` 会被当管道符**，`grep -n -E "warn|error"` 会报「不是内部或外部命令」。
+- `--levels-file <文件>` 每轮重读该文件，**改文件即换过滤、不用重启窗口**；文件内容 `warn,error` 视为级别列表，以 `grep ` 开头则整串当自定义过滤。
+- MCP 客户端名必须是 IDE **已授权**的那个（skill-cli 默认 `dsh`）；换个新名字 `initialize` 会返回 `Client authorization pending`。
+- 注意工具给的是 **console 缓冲区**（grep 命中行），不是实时流；行号是缓冲区行号，脚本按行号只打新增。
+
+**布局记忆**：`scripts/window-layout.ps1`（devtools.ps1 的 `save-layout` / `restore-layout` 就是调它）
+
+工具**只持久化尺寸、不记位置**（那份 json 里没有 x/y），所以位置由这个脚本记：
+
+```powershell
+pwsh <本 skill 目录>\scripts\devtools.ps1 save-layout    p2,p3,p4,p5   # → <skill 根>\window-layout.json
+pwsh <本 skill 目录>\scripts\devtools.ps1 restore-layout p2,p3,p4,p5   # 一键复原
+```
+
+`start` 结束时若该 json 存在会**自动 restore 一次**。除四台工程窗口外，标题为 `-LogTitle`（默认「调试输出 · 四台」）的独立日志窗也会一起记住。
+
+
+
 ## 不要浪费时间再试的事
 
 - **连「多账号调试」的简易窗口**：没有端口、随主窗口关闭，平台层不支持。
@@ -182,12 +234,16 @@ node <本 skill 目录>\scripts\patch-minicode-port.js --check p3
 - **第 3 台换启动方式**：正常模式 / `--cli` / 只给 `--user-data-dir`，三种都在同一行（`enable cli service`）卡住——不是启动参数问题，是 minicode 端口被占。
 - **指望"多试几次 / 重启机器就能开 4 台"**：端口只有两个，超过 2 台必须先打 minicode 端口补丁。
 - **把 `--user-data-dir` 的 Chromium 目录删掉重来**：登录态丢的是 CLI profile 那份，删 Chromium 目录解决不了本 bug。
+- **用 CLI 参数换窗口模式**：`cli open --window-mode liteMode` 无效（源码写死 fullMode）；也不要在窗口已开着时改模式——必须先关。
+- **指望工具记住窗口位置**：它只持久化尺寸（`position` / `liteCollapsed`），x/y 一律不存。
 
 ## 已知限制
 
 - 仅 Windows（依赖 Windows 版开发者工具的 `--user-data-dir` / `--ide-http-port` / CLI 行为）。
 - 每实例一套安装副本（约 1.2 GB）与一个 Chromium 目录；4 实例内存约 14–17 GB。
 - **同时超过 2 台要给每个副本打 minicode 端口补丁**（`scripts/patch-minicode-port.js`）；不打补丁时第 3 台必被 Windows 按无响应杀掉。
+- **窗口宽度**：full 模式最小 980（工具写死），要「只有模拟器」的窄窗得切 lite（min 280 / 设备宽+30）；lite 窗口里没有调试器面板，console 要靠 `scripts/console-watch.js` 或 full 模式弹出的调试器窗口看。
+- **窗口位置**工具不持久化（只存尺寸），跨重启要靠 `save-layout` / `restore-layout`。
 - 身份隔离依赖**每个微信号都有该 appid 的权限**；账号不足时无解（云函数侧受控身份是另一条路，见 `docs/why-multi-instance.md` 方案 C）。
 - 实测版本：微信开发者工具 **2.02.2608060**；更高版本若改了 `agentStart` / 窗口寻址逻辑，需重新验证。
 
@@ -195,5 +251,7 @@ node <本 skill 目录>\scripts\patch-minicode-port.js --check p3
 
 - [`docs/why-multi-instance.md`](docs/why-multi-instance.md)：平台层证据 + 四方案对比（含"为什么官方多账号自动化不可用"）。
 - [`scripts/patch-minicode-port.js`](scripts/patch-minicode-port.js)：minicode 双端口 bug 的补丁 / 复核 / 还原工具（`--check`、`--revert`）。
+- [`scripts/console-watch.js`](scripts/console-watch.js)：独立日志窗——把各实例模拟器 console（默认 warn 及以上）实时打到单独窗口，按身份前缀。
+- [`scripts/window-layout.ps1`](scripts/window-layout.ps1)：记住 / 复原窗口位置与大小（devtools.ps1 的 `save-layout` / `restore-layout` 调它）。
 - [`README.md`](README.md)：安装、实例表配置、快速开始。
 - 官方文档：[多账号调试](https://developers.weixin.qq.com/miniprogram/dev/devtools/multiaccount.html)、[自动化 FAQ](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/faq.html)。
