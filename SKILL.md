@@ -57,11 +57,12 @@ node <本 skill 目录>\scripts\patch-minicode-port.js p4 32125 33235
 node <本 skill 目录>\scripts\patch-minicode-port.js p5 32126 33236
 node <本 skill 目录>\scripts\patch-minicode-port.js --check p3      # 复核
 
-pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>   # 起完即 lite（默认）+ 自动复原上次布局
+pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>   # 起完即 lite（默认）+ 自动开调试输出窗 + 复原上次布局
 # 【人工】每个窗口：头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify  p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同 + 打印库内角色
 pwsh $S lite    p2,p3,p4,p5 -Project $P     # start 已默认切 lite；想在起完之后再切一次时用
 pwsh $S full    p2,p3,p4,p5 -Project $P     # 需要编辑器/调试器面板时切回 full（或 start -WindowMode full）
+pwsh $S console p2,p3,p4,p5 -Project $P     # 只开/复用调试输出窗（标题「调试输出 · 四台」，已在跑则复用）
 pwsh $S save-layout    p2,p3,p4,p5          # 记住窗口位置+大小（含独立日志窗）
 pwsh $S restore-layout p2,p3,p4,p5          # 复原上次记住的布局
 pwsh $S arrange p2,p3,p4,p5                 # 可选：宫格摆窗。它会先最大化再改尺寸——习惯自己最大化/调窗口就别跑

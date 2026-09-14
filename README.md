@@ -62,11 +62,12 @@ node "<本目录>\scripts\patch-minicode-port.js" p3 32124 33234
 node "<本目录>\scripts\patch-minicode-port.js" p4 32125 33235
 node "<本目录>\scripts\patch-minicode-port.js" p5 32126 33236
 
-pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 切 lite（默认）+ 校验 + 复原布局
+pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 切 lite（默认）+ 开调试输出窗 + 校验 + 复原布局
 # 【人工】在每个窗口：右上角头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同；同时打印库内角色
 pwsh $S lite   p2,p3,p4,p5 -Project $P     # 已默认 lite；想在起完之后再切一次时用
 pwsh $S full   p2,p3,p4,p5 -Project $P     # 需要编辑器/调试器面板时切回 full
+pwsh $S console p2,p3,p4,p5 -Project $P    # 只开/复用调试输出窗（已在跑则复用，不重复开）
 pwsh $S save-layout p2,p3,p4,p5            # 记住窗口位置+大小（start 结束时会自动 restore）
 pwsh $S arrange p2,p3,p4,p5                # 可选：2×2 摆窗（会先最大化再改尺寸；习惯手动调窗口就别跑）
 pwsh $S stop   p2,p3,p4,p5                 # 收尾
@@ -80,7 +81,12 @@ pwsh $S stop   p2,p3,p4,p5                 # 收尾
 
 ```powershell
 node "<本目录>\scripts\console-watch.js" --project $P --instances p2,p3,p4,p5
+# 或：pwsh $S console p2,p3,p4,p5 -Project $P    # 由 devtools.ps1 拉开一个标题为「调试输出 · 四台」的窗口
 ```
+
+> `start` 默认会把上面这个输出窗一起开出来（标题＝`-LogTitle`，默认「调试输出 · 四台」；已在跑则复用不重复开），
+> 窗口位置/大小同样由 `save-layout` / `restore-layout` 记忆——所以 `start` 一次就能回到「四台窄窗 + 右侧输出窗」的完整布局。
+> 不想要它加 `-NoConsole`。
 
 连接某个实例（任意测试脚本）：
 

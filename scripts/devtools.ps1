@@ -10,11 +10,12 @@
   --user-data-dir / --ide-http-port / --remote-port。
 
   用法：
-    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 切 lite（默认）+ 校验 + 复原布局
+    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 切 lite（默认）+ 开调试输出窗 + 校验 + 复原布局
     pwsh devtools.ps1 verify  p3,p4 -Project <工程绝对路径>  # 只校验：端口、当前身份、库内角色
     pwsh devtools.ps1 fix     p3    -Project <工程绝对路径>  # invalid credential 时刷新该实例云会话
     pwsh devtools.ps1 lite    p3,p4 -Project <工程绝对路径>  # 把工程窗口切成 lite（只有模拟器的窄窗）
     pwsh devtools.ps1 full    p3,p4 -Project <工程绝对路径>  # 切回 full（编辑器+模拟器+调试器）
+    pwsh devtools.ps1 console p3,p4 -Project <工程绝对路径>  # 只开/复用调试输出窗（四台 console 合并）
     pwsh devtools.ps1 save-layout    p3,p4                   # 记住这些窗口的位置+大小（含独立日志窗）
     pwsh devtools.ps1 restore-layout p3,p4                   # 复原上次记住的窗口布局
     pwsh devtools.ps1 arrange p3,p4                          # 窗口宫格摆开（会先最大化再改尺寸，习惯手调就别跑）
@@ -29,6 +30,7 @@
     -LogTitle <标题>       独立日志窗标题（默认「调试输出 · 四台」，见 scripts\console-watch.js）
     -WindowMode lite|full   start 时的窗口形态，默认 lite（只有模拟器的窄窗）；
                             要全功能界面显式传 -WindowMode full；随时可用 lite/full 动作切换
+    -NoConsole             start 时不自动拉调试输出窗（默认会拉起，标题见 -LogTitle；已在跑则复用）
 
   窗口形态：full 模式（默认）最小宽度被工具锁在 980；要「只有模拟器」的窄窗（280 / 设备宽+30）
   只能用 `lite` 动作——它走 MCP 工具 `open_project_window --window-mode liteMode`，因为 CLI 的
@@ -39,7 +41,7 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'full', 'save-layout', 'restore-layout')]
+  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'full', 'console', 'save-layout', 'restore-layout')]
   [string]$Action = 'verify',
 
   [Parameter(Position = 1)]
@@ -55,6 +57,8 @@ param(
   # 要 full（编辑器+模拟器+调试器）显式传 -WindowMode full。CLI open 开不出 lite，见 Switch-ToLite。
   [ValidateSet('lite', 'full')]
   [string]$WindowMode = 'lite',
+  # start 默认同时拉起调试输出窗（scripts\console-watch.js，标题 -LogTitle）；-NoConsole 可只起实例
+  [switch]$NoConsole,
   [switch]$DryRun
 )
 
@@ -271,6 +275,24 @@ function Switch-ToFull([string]$n) {
   Attach-Automation $n
 }
 
+# ---- 调试输出窗：把四台 console（默认 warn 及以上）合并到一个独立窗口 ----
+# 工具只记窗口位置、不记"该开哪个窗"，所以这里按 $LogTitle 幂等拉起（已在跑就不重复开）
+function Ensure-ConsoleWindow {
+  $running = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle -and $_.MainWindowTitle -eq $LogTitle })
+  if ($running.Count -gt 0) {
+    Write-Host "[console] 已在运行（PID $($running[0].Id)，标题「$LogTitle」）"
+    return
+  }
+  $script = Join-Path $PSScriptRoot 'console-watch.js'
+  if (-not (Test-Path $script)) { Write-Host "[console] 缺 $script，跳过"; return }
+  if (-not $Project) { Write-Host '[console] 缺 -Project，跳过'; return }
+  $inst = ($Selected -join ',')
+  $inner = "`$host.UI.RawUI.WindowTitle='$LogTitle'; node '$script' --project '$Project' --instances $inst --interval 3000"
+  Start-Process -FilePath 'pwsh' -ArgumentList @('-NoExit', '-NoProfile', '-Command', $inner) -WindowStyle Normal
+  Write-Host "[console] 已开调试输出窗（标题「$LogTitle」）"
+  Start-Sleep -Seconds 10
+}
+
 switch ($Action) {
   'start' {
     foreach ($n in $Selected) { Ensure-Instance $n; Open-Project $n; Attach-Automation $n }
@@ -281,6 +303,10 @@ switch ($Action) {
     } else {
       Write-Host ''
       Write-Host '窗口形态：full（-WindowMode full）'
+    }
+    if (-not $NoConsole) {
+      Write-Host ''
+      Ensure-ConsoleWindow
     }
     Write-Host ''
     Invoke-Verify
@@ -322,6 +348,7 @@ switch ($Action) {
     Write-Host ''
     Invoke-Verify
   }
+  'console' { Ensure-ConsoleWindow }
   'save-layout' { Invoke-Layout 'save' }
   'restore-layout' { Invoke-Layout 'restore' }
   'arrange' { Arrange-Windows }
