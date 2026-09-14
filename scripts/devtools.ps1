@@ -296,6 +296,12 @@ function Ensure-ConsoleWindow {
 switch ($Action) {
   'start' {
     foreach ($n in $Selected) { Ensure-Instance $n; Open-Project $n; Attach-Automation $n }
+    # 2026-09-13：调试输出窗跟着实例一起拉起（紧跟在端口就绪之后、切 lite 之前）——
+    # 这样启动过程中的 console（含切窗口/重编译）也能被看到，而不是等窄窗切完才开
+    if (-not $NoConsole) {
+      Write-Host ''
+      Ensure-ConsoleWindow
+    }
     if ($WindowMode -eq 'lite') {
       Write-Host ''
       Write-Host '窗口形态：lite（默认）——切到「只有模拟器」的窄窗…'
@@ -303,10 +309,6 @@ switch ($Action) {
     } else {
       Write-Host ''
       Write-Host '窗口形态：full（-WindowMode full）'
-    }
-    if (-not $NoConsole) {
-      Write-Host ''
-      Ensure-ConsoleWindow
     }
     Write-Host ''
     Invoke-Verify
