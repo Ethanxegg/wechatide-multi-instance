@@ -7,7 +7,7 @@
 
 ## 能做什么
 
-- `devtools.ps1 start|stop|verify|fix|lite|save-layout|restore-layout|arrange|status`：一键起/停 N 个互相隔离的实例、挂自动化端口、校验每个实例当前是**哪个真实身份**（含库内用户与角色）、把工程窗口切成「只有模拟器」的窄窗、记住/复原窗口布局、把窗口摆成宫格便于肉眼区分。
+- `devtools.ps1 start|stop|verify|fix|lite|full|save-layout|restore-layout|arrange|status`：一键起/停 N 个互相隔离的实例、挂自动化端口、校验每个实例当前是**哪个真实身份**（含库内用户与角色）、把工程窗口切成「只有模拟器」的窄窗（**start 默认就切 lite**）、记住/复原窗口布局、把窗口摆成宫格便于肉眼区分。
 - `verify-identities.js`：逐个端口读 `whoami` + 页面路径 + 库内用户/角色；**把"多个实例其实是同一个账号"直接判为失败**、把云会话失效提示成一条修复命令。
 - `patch-minicode-port.js`：修「第 3 个实例必被 Windows 按无响应杀掉」的工具 bug（内置 `minicode server` 只有 32123/33233 两个端口）；支持 `--check` / `--revert`。见 `SKILL.md` 专节。
 - `console-watch.js`：**独立调试输出窗口**——把各实例模拟器的 console（默认 warn 及以上）实时打到单独窗口，行首带身份前缀，四台合并看。
@@ -62,14 +62,19 @@ node "<本目录>\scripts\patch-minicode-port.js" p3 32124 33234
 node "<本目录>\scripts\patch-minicode-port.js" p4 32125 33235
 node "<本目录>\scripts\patch-minicode-port.js" p5 32126 33236
 
-pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 校验
+pwsh $S start p2,p3,p4,p5 -Project $P      # 起 4 个实例 + 开工程 + 挂端口 + 切 lite（默认）+ 校验 + 复原布局
 # 【人工】在每个窗口：右上角头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同；同时打印库内角色
-pwsh $S lite   p2,p3,p4,p5 -Project $P     # 可选：切成「只有模拟器」的窄窗（约 400px，可并排摆开）
+pwsh $S lite   p2,p3,p4,p5 -Project $P     # 已默认 lite；想在起完之后再切一次时用
+pwsh $S full   p2,p3,p4,p5 -Project $P     # 需要编辑器/调试器面板时切回 full
 pwsh $S save-layout p2,p3,p4,p5            # 记住窗口位置+大小（start 结束时会自动 restore）
 pwsh $S arrange p2,p3,p4,p5                # 可选：2×2 摆窗（会先最大化再改尺寸；习惯手动调窗口就别跑）
 pwsh $S stop   p2,p3,p4,p5                 # 收尾
 ```
+
+> **窗口形态默认 lite**（2026-09-13 起）：`start` 会在挂完端口后自动把每个实例切成「只有模拟器」的窄窗（约 400px，可并排摆开），
+> 这样起完就是可用的窄窗布局。要完整界面（编辑器 + 模拟器 + 调试器）用 `start ... -WindowMode full`，或随时 `full` 动作切回；
+> 切模式都是「先关窗再开」（工具限制，见「实测结论」）。
 
 独立调试输出窗口（四台合并、行首带身份前缀、默认 warn 及以上）：
 

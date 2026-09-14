@@ -10,10 +10,11 @@
   --user-data-dir / --ide-http-port / --remote-port。
 
   用法：
-    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 校验（末尾自动复原上次布局）
+    pwsh devtools.ps1 start   p3,p4 -Project <工程绝对路径>  # 起实例 + 开工程 + 挂端口 + 切 lite（默认）+ 校验 + 复原布局
     pwsh devtools.ps1 verify  p3,p4 -Project <工程绝对路径>  # 只校验：端口、当前身份、库内角色
     pwsh devtools.ps1 fix     p3    -Project <工程绝对路径>  # invalid credential 时刷新该实例云会话
     pwsh devtools.ps1 lite    p3,p4 -Project <工程绝对路径>  # 把工程窗口切成 lite（只有模拟器的窄窗）
+    pwsh devtools.ps1 full    p3,p4 -Project <工程绝对路径>  # 切回 full（编辑器+模拟器+调试器）
     pwsh devtools.ps1 save-layout    p3,p4                   # 记住这些窗口的位置+大小（含独立日志窗）
     pwsh devtools.ps1 restore-layout p3,p4                   # 复原上次记住的窗口布局
     pwsh devtools.ps1 arrange p3,p4                          # 窗口宫格摆开（会先最大化再改尺寸，习惯手调就别跑）
@@ -26,6 +27,8 @@
     -Config <json 路径>   自定义实例表，见 README「实例表配置」
     -LayoutFile <json>    窗口布局文件（默认 <skill 根>\window-layout.json）
     -LogTitle <标题>       独立日志窗标题（默认「调试输出 · 四台」，见 scripts\console-watch.js）
+    -WindowMode lite|full   start 时的窗口形态，默认 lite（只有模拟器的窄窗）；
+                            要全功能界面显式传 -WindowMode full；随时可用 lite/full 动作切换
 
   窗口形态：full 模式（默认）最小宽度被工具锁在 980；要「只有模拟器」的窄窗（280 / 设备宽+30）
   只能用 `lite` 动作——它走 MCP 工具 `open_project_window --window-mode liteMode`，因为 CLI 的
@@ -36,7 +39,7 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'save-layout', 'restore-layout')]
+  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'full', 'save-layout', 'restore-layout')]
   [string]$Action = 'verify',
 
   [Parameter(Position = 1)]
@@ -48,6 +51,10 @@ param(
   [string]$Config,
   [string]$LayoutFile,
   [string]$LogTitle = '调试输出 · 四台',
+  # 2026-09-13：窗口形态默认 lite（只有模拟器的窄窗）——start 结束会自动把每个实例切一次；
+  # 要 full（编辑器+模拟器+调试器）显式传 -WindowMode full。CLI open 开不出 lite，见 Switch-ToLite。
+  [ValidateSet('lite', 'full')]
+  [string]$WindowMode = 'lite',
   [switch]$DryRun
 )
 
@@ -248,9 +255,33 @@ function Switch-ToLite([string]$n) {
   Attach-Automation $n
 }
 
+# ---- full 窗口：编辑器 + 模拟器 + 调试器（要显式切回时用）----
+function Switch-ToFull([string]$n) {
+  $w = Join-Path (Get-Install $n) 'wechatide.cmd'
+  if (-not (Test-Path $w)) { Write-Host "[$n] 该副本没有 wechatide.cmd（版本过老？），跳过"; return }
+  Write-Host "[$n] 切 full 窗口…"
+  & $w -c dsh close_project_window --project $Project *> $null
+  for ($i = 1; $i -le 12; $i++) {
+    Start-Sleep -Seconds 2
+    $open = @(Get-Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and $_.Path.StartsWith((Get-Install $n), 'OrdinalIgnoreCase') -and $_.MainWindowTitle -eq (Split-Path $Project -Leaf) })
+    if (-not $open) { break }
+  }
+  Open-Project $n
+  Attach-Automation $n
+}
+
 switch ($Action) {
   'start' {
     foreach ($n in $Selected) { Ensure-Instance $n; Open-Project $n; Attach-Automation $n }
+    if ($WindowMode -eq 'lite') {
+      Write-Host ''
+      Write-Host '窗口形态：lite（默认）——切到「只有模拟器」的窄窗…'
+      foreach ($n in $Selected) { Switch-ToLite $n }
+    } else {
+      Write-Host ''
+      Write-Host '窗口形态：full（-WindowMode full）'
+    }
     Write-Host ''
     Invoke-Verify
     if (Test-Path $LayoutFile) {
@@ -282,6 +313,12 @@ switch ($Action) {
   'lite' {
     if (-not $Project) { throw 'lite 需要 -Project <工程绝对路径>' }
     foreach ($n in $Selected) { Switch-ToLite $n }
+    Write-Host ''
+    Invoke-Verify
+  }
+  'full' {
+    if (-not $Project) { throw 'full 需要 -Project <工程绝对路径>' }
+    foreach ($n in $Selected) { Switch-ToFull $n }
     Write-Host ''
     Invoke-Verify
   }

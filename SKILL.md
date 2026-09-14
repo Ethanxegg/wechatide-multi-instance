@@ -57,10 +57,11 @@ node <本 skill 目录>\scripts\patch-minicode-port.js p4 32125 33235
 node <本 skill 目录>\scripts\patch-minicode-port.js p5 32126 33236
 node <本 skill 目录>\scripts\patch-minicode-port.js --check p3      # 复核
 
-pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>   # 末尾会自动复原上次布局
+pwsh $S start   p2,p3,p4,p5 -Project $P -InstallRoot <开发者工具主安装目录>   # 起完即 lite（默认）+ 自动复原上次布局
 # 【人工】每个窗口：头像 → 退出登录 → 用不同微信号扫码
 pwsh $S verify  p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同 + 打印库内角色
-pwsh $S lite    p2,p3,p4,p5 -Project $P     # 可选：切「只有模拟器」的窄窗（约 400px，可并排摆开）
+pwsh $S lite    p2,p3,p4,p5 -Project $P     # start 已默认切 lite；想在起完之后再切一次时用
+pwsh $S full    p2,p3,p4,p5 -Project $P     # 需要编辑器/调试器面板时切回 full（或 start -WindowMode full）
 pwsh $S save-layout    p2,p3,p4,p5          # 记住窗口位置+大小（含独立日志窗）
 pwsh $S restore-layout p2,p3,p4,p5          # 复原上次记住的布局
 pwsh $S arrange p2,p3,p4,p5                 # 可选：宫格摆窗。它会先最大化再改尺寸——习惯自己最大化/调窗口就别跑
@@ -191,7 +192,7 @@ node <本 skill 目录>\scripts\patch-minicode-port.js --check p3
 | | 内容 | 尺寸 | 怎么开 |
 |---|---|---|---|
 | `fullMode`（默认） | 编辑器 + 模拟器 + 调试器 | 默认 1250×1000，**最小宽度被工具锁在 980** | `cli open --project <工程>` |
-| `liteMode` | **只有模拟器**（紧凑标题栏 + 工具栏 + 模拟器） | 默认「设备宽+30」×「设备高+60」，**最小宽 280** | `devtools.ps1 lite`（走 MCP 工具，见下） |
+| `liteMode` | **只有模拟器**（紧凑标题栏 + 工具栏 + 模拟器） | 默认「设备宽+30」×「设备高+60」，**最小宽 280** | `devtools.ps1 lite`（走 MCP 工具，见下）；**`start` 默认起完就切 lite** |
 
 - CLI 的 `open` **开不出 lite 窗口**：源码里写死了 `openProjectWindow(o, "fullMode")`，传 `--window-mode liteMode` 会被忽略（实测两次都仍是 full）。能带 `windowMode` 的只有 MCP 工具 `open_project_window`（默认值就是 `liteMode`），`devtools.ps1 lite` 就是调它：先 `close_project_window` 再 `open_project_window --window-mode liteMode`——**窗口已存在时换模式无效**，必须先关。
 - `start` **不会**把已开着的窗口打回 full：它走 CLI `open`，而 CLI open 发现窗口已存在就直接返回、不动窗口。但**窗口原本是关着**的时候 `start` 会用 full 模式开出来，随后要窄窗得补一次 `lite`。
