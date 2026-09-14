@@ -166,6 +166,27 @@ function Open-Project([string]$n) {
   Start-Sleep -Seconds 6
 }
 
+# 2026-09-14：直接以 lite 打开（不再"先 CLI 开 full → 关掉 → MCP 开 lite"两次开窗）。
+# CLI 的 open 写死 fullMode，所以 lite 只能走 MCP；窗口还没开时直接调 MCP 就是一次到位。
+function Open-ProjectLite([string]$n) {
+  $w = Join-Path (Get-Install $n) 'wechatide.cmd'
+  if (-not (Test-Path $w)) { Write-Host "[$n] 副本没有 wechatide.cmd，回落 CLI full"; Open-Project $n; return }
+  $out = & $w -c dsh open_project_window --project $Project --window-mode liteMode 2>&1 | Out-String
+  if ($out -notmatch '"success":\s*true') {
+    Write-Host "[$n] open_project_window 异常（$((($out.Trim() -split "`n") | Select-Object -Last 1).Trim())），回落 CLI full"
+    Open-Project $n
+    return
+  }
+  for ($i = 1; $i -le 20; $i++) {
+    Start-Sleep -Seconds 1
+    $open = @(Get-Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and $_.Path.StartsWith((Get-Install $n), 'OrdinalIgnoreCase') -and $_.MainWindowTitle -eq (Split-Path $Project -Leaf) })
+    if ($open) { break }
+  }
+  Write-Host "[$n] 已以 lite 打开（一次到位）"
+  Start-Sleep -Seconds 3
+}
+
 function Attach-Automation([string]$n) {
   $s = $Instances[$n]
   if (Test-Port $s.auto) { Write-Host "[$n] 自动化端口 $($s.auto) 已在监听"; return }
@@ -295,17 +316,20 @@ function Ensure-ConsoleWindow {
 
 switch ($Action) {
   'start' {
-    foreach ($n in $Selected) { Ensure-Instance $n; Open-Project $n; Attach-Automation $n }
-    # 2026-09-13：调试输出窗跟着实例一起拉起（紧跟在端口就绪之后、切 lite 之前）——
-    # 这样启动过程中的 console（含切窗口/重编译）也能被看到，而不是等窄窗切完才开
+    foreach ($n in $Selected) {
+      Ensure-Instance $n
+      if ($WindowMode -eq 'lite') { Open-ProjectLite $n } else { Open-Project $n }
+      Attach-Automation $n
+    }
+    # 2026-09-14：调试输出窗跟着实例一起拉起（紧跟在端口就绪之后）——
+    # 这样启动过程中的 console（含重编译）也能被看到
     if (-not $NoConsole) {
       Write-Host ''
       Ensure-ConsoleWindow
     }
     if ($WindowMode -eq 'lite') {
       Write-Host ''
-      Write-Host '窗口形态：lite（默认）——切到「只有模拟器」的窄窗…'
-      foreach ($n in $Selected) { Switch-ToLite $n }
+      Write-Host '窗口形态：lite（已直接以窄窗打开，无需二次切换）'
     } else {
       Write-Host ''
       Write-Host '窗口形态：full（-WindowMode full）'
