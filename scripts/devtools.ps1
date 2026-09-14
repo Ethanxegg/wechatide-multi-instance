@@ -41,7 +41,7 @@
 #>
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'full', 'console', 'save-layout', 'restore-layout')]
+  [ValidateSet('start', 'stop', 'verify', 'fix', 'arrange', 'status', 'lite', 'full', 'console', 'save-layout', 'restore-layout', 'untop')]
   [string]$Action = 'verify',
 
   [Parameter(Position = 1)]
@@ -59,6 +59,7 @@ param(
   [string]$WindowMode = 'lite',
   # start 默认同时拉起调试输出窗（scripts\console-watch.js，标题 -LogTitle）；-NoConsole 可只起实例
   [switch]$NoConsole,
+  [switch]$NoTop,
   [switch]$DryRun
 )
 
@@ -212,13 +213,39 @@ function Stop-Instance([string]$n) {
   if (-not $DryRun) { Write-Host "[$n] 已结束 $($procs.Count) 个进程" }
 }
 
-function Arrange-Windows {
-  if (-not ('Win32Api' -as [type])) {
-    Add-Type -Namespace W -Name Win32Api -MemberDefinition @'
+function Ensure-Win32 {
+  if ('Win32Api' -as [type]) { return }
+  Add-Type -Namespace W -Name Win32Api -MemberDefinition @'
 [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr h, int x, int y, int w, int ht, bool repaint);
 [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+[DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+[DllImport("user32.dll")] public static extern int GetWindowLong(IntPtr h, int nIndex);
 '@
+}
+
+# ---- 取消置顶 ----
+# 工具**写死**了 lite 窗口 always_on_top:true（app.asar 里 `n.liteProject?{always_on_top:!0}:{}`），
+# 没有设置项可关。这里在 OS 层摘掉 WS_EX_TOPMOST（HWND_NOTOPMOST）——工具不会自己加回来。
+function Clear-TopMost {
+  Ensure-Win32
+  $EXSTYLE = -20; $WS_EX_TOPMOST = 0x8; $SWP_NOSIZE_NOMOVE = 0x0003
+  foreach ($n in $Selected) {
+    $exe = Get-Install $n
+    $proc = Get-Process -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and $_.Path.StartsWith($exe, 'OrdinalIgnoreCase') -and $_.MainWindowHandle -ne 0 } |
+      Select-Object -First 1
+    if (-not $proc) { Write-Host "[$n] 没有可见窗口（先 start/open 工程）"; continue }
+    $h = $proc.MainWindowHandle
+    $before = ([W.Win32Api]::GetWindowLong($h, $EXSTYLE) -band $WS_EX_TOPMOST) -ne 0
+    [W.Win32Api]::SetWindowPos($h, [IntPtr](-2), 0, 0, 0, 0, $SWP_NOSIZE_NOMOVE) | Out-Null
+    Start-Sleep -Milliseconds 200
+    $after = ([W.Win32Api]::GetWindowLong($h, $EXSTYLE) -band $WS_EX_TOPMOST) -ne 0
+    Write-Host ("[{0}] 置顶：{1} → {2}" -f $n, $(if ($before) { '开' } else { '关' }), $(if ($after) { '开' } else { '关' }))
   }
+}
+
+function Arrange-Windows {
+  Ensure-Win32
   Add-Type -AssemblyName System.Windows.Forms
   $area = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
   $cols = if ($Selected.Count -le 1) { 1 } else { 2 }
@@ -341,6 +368,11 @@ switch ($Action) {
       Write-Host "复原上次记住的窗口布局（$LayoutFile）…"
       Invoke-Layout 'restore'
     }
+    if ($NoTop -and $WindowMode -eq 'lite') {
+      Write-Host ''
+      Write-Host '取消 lite 窗口置顶（-NoTop）…'
+      Clear-TopMost
+    }
     Write-Host "`n下一步：若上面出现「身份重复」，在每个实例窗口右上角头像 → 退出登录 → 用不同微信号扫码，再跑 verify。"
   }
   'verify' { Invoke-Verify }
@@ -375,6 +407,7 @@ switch ($Action) {
     Invoke-Verify
   }
   'console' { Ensure-ConsoleWindow }
+  'untop' { Clear-TopMost }
   'save-layout' { Invoke-Layout 'save' }
   'restore-layout' { Invoke-Layout 'restore' }
   'arrange' { Arrange-Windows }

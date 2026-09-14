@@ -6,7 +6,8 @@ description: >-
   也覆盖这一路的坑与处置：多账号调试窗口不可自动化、同一 appid 的 access_token 互相顶掉
   （invalid credential）、agent start 只绑第一个窗口、CLI 参数真名（cache --clean session）、
   第 3 个实例起不来（minicode server 双端口 bug，附补丁脚本）、
-  窗口太宽只想留模拟器（lite 窗口）、把调试输出独立成窗口、记住/复原多窗口布局，
+  窗口太宽只想留模拟器（lite 窗口）、把调试输出独立成窗口、记住/复原多窗口布局、
+  lite 窗口被强制置顶（工具写死，附 `untop` 取消），
   以及小程序侧 `module '@babel/runtime/...' is not defined` / `Cloud API isn't enabled` 的鉴别与修复。
   当需要多个角色同时在线调试、多窗口并行自动化、开多个开发者工具实例，
   或同工程的第二个窗口连不上自动化端口、第 3 个实例开了就卡死、新实例编译报模块缺失时使用。
@@ -14,7 +15,8 @@ whenToUse: >-
   用户要"多角色/多账号同时在线测试"、"开多个开发者工具实例"、"多窗口调试图自动化"，
   或多账号调试开的窗口连不上自动化端口、报 invalid credential、
   第 3 个实例起不来/窗口卡住/进程只有 4~6 个、
-  嫌窗口太宽想"只留模拟器/预览"、想把调试输出独立成窗口、想记住多窗口布局，
+  嫌窗口太宽想"只留模拟器/预览"、想把调试输出独立成窗口、想记住多窗口布局、
+  嫌 lite 窗口总在最前面/置顶想去掉，
   新开的窗口报 module is not defined / Cloud API isn't enabled 时。
 metadata:
   short-description: 开发者工具多实例多账号并行调试
@@ -36,6 +38,47 @@ metadata:
 5. **第 3 个实例会死在工具自身的 bug 上**：内置 `minicode server` 端口写死 32123、只回退 33233，两个都被占就无限重试 → 主进程死循环，Windows 约 30 秒按无响应杀掉（进程只剩 4~6 个、无窗口、日志停在 `enable cli service`）。**该版本同时最多 2 台**；开 3 台以上要先用 `scripts/patch-minicode-port.js` 给每个副本一组独立端口，见下方专节。
 
 > 结论：**要 N 个可独立驱动的身份，只能起 N 个 IDE 实例**，每实例独立安装副本 + 独立 `--user-data-dir` + 不同微信号登录；`N > 2` 时还要先打 minicode 端口补丁。
+
+## 本机速用（菁英护航 eliteescort · 4 实例固定配置）
+
+> 换会话后用户说「打开 4 个微信开发者工具 / 起 4 台 / 多实例调试」，照这块直接跑，不用再推路径。
+
+| | 值 |
+|---|---|
+| 脚本 | `%USERPROFILE%\.dsh\skills\wechatide-multi-instance\scripts\devtools.ps1`（仓库副本：`eliteescort\.agents\skills\wechatide-multi-instance\scripts\devtools.ps1`） |
+| 工程 | `E:\创新创业\领航计划\宣传平台\eliteescort\apps\wechat` |
+| 安装根 | `D:\Tencent\wechatdev`（副本 `-p2`…`-p5`，已打 minicode 端口补丁，可同时开 4 台） |
+| Chromium | `D:\ide-chromium`（`-p2`…`-p5`） |
+| 布局文件 | `<skill 根>\window-layout.json` —— 5 个窗口（4 主窗 + 调试输出窗），全局副本里已存 |
+
+四个身份（**测试必须在对的实例上做**）：
+
+| 实例 | 自动化端口 | 微信身份 | 角色 |
+|---|---|---|---|
+| p2 | 9421 | 陈珂羽 | 导员 / advisor |
+| p3 | 9422 | 电💓我 | 导生 / guide（主力，家教工作台在这台） |
+| p4 | 9423 | Aaronnnnn | 家长 |
+| p5 | 9424 | 纪文正 | 导生二号 |
+
+```powershell
+$S = "$env:USERPROFILE\.dsh\skills\wechatide-multi-instance\scripts\devtools.ps1"
+$P = 'E:\创新创业\领航计划\宣传平台\eliteescort\apps\wechat'
+
+# 默认就是 lite + 自动拉调试输出窗 + 复原上次布局；约 3–5 分钟。`-NoTop` = 顺手取消 lite 置顶
+pwsh -NoProfile -File $S start p2,p3,p4,p5 -Project $P -InstallRoot 'D:\Tencent\wechatdev' -NoTop
+
+pwsh -NoProfile -File $S status  p2,p3,p4,p5
+pwsh -NoProfile -File $S untop   p2,p3,p4,p5                 # 已经开着的窗口补一次取消置顶
+pwsh -NoProfile -File $S verify  p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同
+pwsh -NoProfile -File $S console p2,p3,p4,p5 -Project $P     # 调试输出窗没起来时补一次
+pwsh -NoProfile -File $S stop    p2,p3,p4,p5
+```
+
+本项目约定（踩过）：
+
+- **`start` 必须放后台 job**：整轮 3–5 分钟，超工具 600s 上限会被连子进程一起杀掉。
+- **不要跑 `arrange`**：窗口位置由用户自己摆；只有用户明确说「记住布局」才跑 `save-layout`。
+- 端口没起来的实例不用重开全部：`stop p4` 再 `start p4` 即可（半死实例的典型症状是 `getApp()` 取到空对象）。
 
 ## 安装
 
@@ -63,6 +106,8 @@ pwsh $S verify  p2,p3,p4,p5 -Project $P     # 四个 openid 必须互不相同 +
 pwsh $S lite    p2,p3,p4,p5 -Project $P     # start 已默认切 lite；想在起完之后再切一次时用
 pwsh $S full    p2,p3,p4,p5 -Project $P     # 需要编辑器/调试器面板时切回 full（或 start -WindowMode full）
 pwsh $S console p2,p3,p4,p5 -Project $P     # 只开/复用调试输出窗（标题「调试输出 · 四台」，已在跑则复用）
+pwsh $S untop   p2,p3,p4,p5                  # 取消 lite 窗口置顶（工具写死 lite 一律置顶，没有设置项；见下）
+pwsh $S start   p2,p3,p4,p5 -Project $P -NoTop   # 起完直接取消置顶
 pwsh $S save-layout    p2,p3,p4,p5          # 记住窗口位置+大小（含独立日志窗）
 pwsh $S restore-layout p2,p3,p4,p5          # 复原上次记住的布局
 pwsh $S arrange p2,p3,p4,p5                 # 可选：宫格摆窗。它会先最大化再改尺寸——习惯自己最大化/调窗口就别跑
@@ -200,6 +245,13 @@ node <本 skill 目录>\scripts\patch-minicode-port.js --check p3
 - lite 窗口里**没有调试器面板**（lite 就是纯模拟器），所以想看 console 得另开：见下面的独立日志窗；或回到 full 模式，在调试器面板上点「分离窗口」（`ICON_DETACH` → 该动作会同时弹出模拟器窗口和 `<工程名>的调试器` 独立窗口）。
 - 尺寸工具自己会记：profile 的 `WeappLocalData\localstorage_<hash>.json` 里 `position`（full 尺寸）/ `liteCollapsed`（lite 尺寸），改了尺寸下次启动按这个开。
 
+**lite 窗口一律置顶（工具写死，可取消）**
+
+- 源码实证：`app.asar` → `js/963d91fd…js` 创建工程窗口时 `…getProjectWindowOptions(n)), n.liteProject ? { always_on_top: !0 } : {}` —— **lite 必然带 `always_on_top`**；`js/747d3320…js` 里那个置顶按钮只是 `nw.Window.get().setAlwaysOnTop(...)` 的现成开关，且它初始 `state.alwaysOnTop=false`（和真实状态不一致，会出现"看着已置顶、点一下还是置顶"）。
+- **没有设置项**可关，两条路：
+  1. `devtools.ps1 untop p2,p3,p4,p5`（或 `start … -NoTop`）——在 OS 层摘掉 `WS_EX_TOPMOST`（`SetWindowPos(HWND_NOTOPMOST)`）。实测有效且**不会被工具加回来**（四台清完 8 秒后复测仍为关）。要在 `start` 里自动做就加 `-NoTop`。
+  2. 改 `app.asar`（把 `{always_on_top:!0}` 去掉）——5 个副本都要改、工具升级即失效，不推荐。
+
 **独立日志窗**：`scripts/console-watch.js`
 
 ```powershell
@@ -264,6 +316,7 @@ pwsh <本 skill 目录>\scripts\devtools.ps1 restore-layout p2,p3,p4,p5   # 一�
 - [`scripts/patch-minicode-port.js`](scripts/patch-minicode-port.js)：minicode 双端口 bug 的补丁 / 复核 / 还原工具（`--check`、`--revert`）。
 - [`scripts/console-watch.js`](scripts/console-watch.js)：独立日志窗——把各实例模拟器 console（默认 warn 及以上）实时打到单独窗口，按身份前缀。
 - [`scripts/window-layout.ps1`](scripts/window-layout.ps1)：记住 / 复原窗口位置与大小（devtools.ps1 的 `save-layout` / `restore-layout` 调它）。
+- `devtools.ps1 untop` / `start -NoTop`：取消 lite 窗口的强制置顶（`SetWindowPos(HWND_NOTOPMOST)`）；置顶来源与实证见上方「lite 窗口一律置顶」。
 - 取证 / 看图：`scripts/list-windows.ps1`、`scripts/capture-window.ps1`、`scripts/patch-ide-layout.js`、`scripts/asar-grep.js`、`scripts/asar-extract.js`、`scripts/locale-find.js`（见上方「取证 / 看图小工具」）。
 - [`README.md`](README.md)：安装、实例表配置、快速开始。
 - 官方文档：[多账号调试](https://developers.weixin.qq.com/miniprogram/dev/devtools/multiaccount.html)、[自动化 FAQ](https://developers.weixin.qq.com/miniprogram/dev/devtools/auto/faq.html)。
